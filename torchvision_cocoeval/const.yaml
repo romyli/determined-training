@@ -1,0 +1,13 @@
+name: torchvision_const_coco
+hyperparameters:
+  learning_rate: 0.005
+  momentum: 0.9
+  weight_decay: 0.0005
+  num_classes: 2
+searcher:
+  name: single
+  metric: iou_segm
+  max_length:
+    batches: 400
+  smaller_is_better: false
+entrypoint: python3 train.py
