@@ -61,11 +61,10 @@ class TorchVisionTrial(pytorch.PyTorchTrial):
         
         self.evaluator = CocoEvaluator(self.test_dataset, self.model)
 
-    def loss_reduced(self, loss_dict):
+    def loss_reduced(self, loss_dict) -> torch.Tensor:
         # reduce losses over all GPUs for logging purposes
         loss_dict_reduced = utils.reduce_dict(loss_dict)
         losses_reduced = sum(loss for loss in loss_dict_reduced.values())
-        
         loss_value = losses_reduced.item()
 
         if not math.isfinite(loss_value):
