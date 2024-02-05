@@ -1,0 +1,23 @@
+name: torchvision_random_search_coco
+hyperparameters:
+  learning_rate:
+    type: double
+    minval: .0001
+    maxval: 0.01
+  momentum:
+    type: double
+    minval: 0.9
+    maxval: 0.99
+  weight_decay:
+    type: double
+    minval: .0001
+    maxval: .001
+  num_classes: 2
+searcher:
+  name: random
+  metric: iou_segm
+  smaller_is_better: false
+  max_trials: 2
+  max_length:
+    batches: 400
+entrypoint: python3 train.py
