@@ -13,7 +13,7 @@ searcher:
   name: single
   metric: iou_segm
   max_length:
-    batches: 500
+    batches: 400
   smaller_is_better: false
 resources:
   slots_per_trial: 2

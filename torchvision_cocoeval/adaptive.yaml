@@ -19,5 +19,5 @@ searcher:
   smaller_is_better: false
   max_trials: 2
   max_length:
-    batches: 500
+    batches: 400
 entrypoint: python3 train.py
