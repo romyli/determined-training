@@ -1,5 +1,4 @@
 import math
-import copy
 import sys
 import logging
 import pathlib
@@ -9,15 +8,11 @@ import data
 import model
 import torch
 from ruamel import yaml
-from torch import nn
-import torchvision
 
 import determined as det
 from determined import pytorch
 
 import utils
-import numpy as np
-#from pycocotools.cocoeval import COCOeval
 from coco_eval import CocoEvaluator
 
 
@@ -25,16 +20,17 @@ class TorchVisionTrial(pytorch.PyTorchTrial):
     def __init__(self, context: pytorch.PyTorchTrialContext, hparams: Dict) -> None:
         self.context = context
 
-        # Trial-level constants.
         self.data_dir = pathlib.Path("data")
         self.data_url = (
             "https://www.cis.upenn.edu/~jshi/ped_html/PennFudanPed.zip"
         )
 
+        # Download the dataset
         utils.download_data(self.data_dir, self.data_url)
 
         self.dataset = data.get_dataset(self.data_dir) # No data preprocessing
         
+        # Split it in train/val
         train_size = int(0.8 * len(self.dataset))
         test_size = len(self.dataset) - train_size
         self.train_dataset, self.test_dataset = torch.utils.data.random_split(self.dataset,[train_size, test_size])
@@ -58,20 +54,10 @@ class TorchVisionTrial(pytorch.PyTorchTrial):
             )
         )
 
-        self.warmup_factor = 1.0 / 1000
-        self.warmup_iters = min(1000, len(self.dataset) - 1)
-
         self.lr_scheduler = self.context.wrap_lr_scheduler(
-            torch.optim.lr_scheduler.LinearLR(
-            self.optimizer, start_factor=self.warmup_factor, total_iters=self.warmup_iters
-            ),
+            torch.optim.lr_scheduler.StepLR(self.optimizer, step_size=3, gamma=0.1),
             step_mode=pytorch.LRScheduler.StepMode.STEP_EVERY_EPOCH,
         )
-
-        # self.lr_scheduler = self.context.wrap_lr_scheduler(
-        #     torch.optim.lr_scheduler.StepLR(self.optimizer, step_size=3, gamma=0.1),
-        #     step_mode=pytorch.LRScheduler.StepMode.STEP_EVERY_EPOCH,
-        # )
         
         self.evaluator = CocoEvaluator(self.test_dataset, self.model)
 
@@ -96,11 +82,10 @@ class TorchVisionTrial(pytorch.PyTorchTrial):
             collate_fn=utils.collate_fn)
 
     def build_validation_data_loader(self) -> pytorch.DataLoader:
-        self.val_data_loader = pytorch.DataLoader(
+        return pytorch.DataLoader(
             self.test_dataset, 
             batch_size=self.per_slot_batch_size,
             collate_fn=utils.collate_fn)
-        return self.val_data_loader
 
     def train_batch(
         self, batch: pytorch.TorchData, epoch_idx: int, batch_idx: int
@@ -122,7 +107,6 @@ class TorchVisionTrial(pytorch.PyTorchTrial):
         return {"loss": loss}
 
     def evaluate_batch(self, batch: pytorch.TorchData, batch_idx: int) -> Dict[str, Any]:
-
         images, targets = batch
 
         outputs = self.model(images, targets)
@@ -135,8 +119,10 @@ class TorchVisionTrial(pytorch.PyTorchTrial):
         self.evaluator.accumulate()
         self.evaluator.summarize()
         metrics = {}
+
+        # Return bbox iou and segmentation iou
         for iou_type, coco_eval in self.evaluator.coco_eval.items():
-            logging.info(f"IoU type: {iou_type}")
+            logging.debug(f"IoU type: {iou_type}")
             coco_eval.summarize()
             metrics[f"iou_{iou_type}"] = coco_eval.stats[0]
 
