@@ -10,7 +10,7 @@ hyperparameters:
   num_classes: 2
 searcher:
   name: single
-  metric: iou_segm
+  metric: bbox_mAP
   max_length:
     batches: 400
   smaller_is_better: false

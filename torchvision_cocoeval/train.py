@@ -1,4 +1,6 @@
+import copy
 import math
+import numpy as np
 import sys
 import logging
 import pathlib
@@ -14,6 +16,62 @@ from determined import pytorch
 
 import utils
 from coco_eval import CocoEvaluator
+from coco_utils import get_coco_api_from_dataset
+
+
+class CocoReducer(pytorch.MetricReducer):
+    def __init__(self, dataset, iou_types):
+    #def __init__(self, base_ds, iou_types, cat_ids=[]):
+        self.dataset = dataset
+        self.iou_types = iou_types
+        self.reset()
+
+    def reset(self):
+        self.results = []
+
+    def update(self, result):
+        self.results.extend(result)
+
+    def per_slot_reduce(self):
+        return self.results
+
+    def cross_slot_reduce(self, per_slot_metrics):
+        metrics = {}
+        coco = get_coco_api_from_dataset(self.dataset)
+        coco_evaluator = CocoEvaluator(coco, self.iou_types)
+
+        # Check if per_slot_metrics != ([],[]) or ([],)
+        if any(slot for slot in per_slot_metrics):
+            for results in per_slot_metrics:
+                results_dict = {r[0]: r[1] for r in results}
+                coco_evaluator.update(results_dict)
+
+            for iou_type in coco_evaluator.iou_types:
+                coco_eval = coco_evaluator.coco_eval[iou_type]
+                a = coco_evaluator.eval_imgs[iou_type]
+                # logging.warning(f"[{iou_type}] a.shape: {a[0].shape}")
+                # logging.warning(f"a: {a}")
+                coco_evaluator.eval_imgs[iou_type] = np.concatenate(
+                    coco_evaluator.eval_imgs[iou_type], 2
+                )
+                coco_eval.evalImgs = list(coco_evaluator.eval_imgs[iou_type].flatten())
+                coco_eval.params.imgIds = list(coco_evaluator.img_ids)
+                # We need to perform a deepcopy here since this dictionary can be modified in a
+                # custom accumulate call and we don't want that to change coco_eval.params.
+                # See https://github.com/cocodataset/cocoapi/blob/master/PythonAPI/pycocotools/cocoeval.py#L315.
+                coco_eval._paramsEval = copy.deepcopy(coco_eval.params)
+            coco_evaluator.accumulate()
+            coco_evaluator.summarize()
+ 
+            for iou_type, coco_eval in coco_evaluator.coco_eval.items():
+                coco_stats = coco_eval.stats.tolist()
+                metrics[f"{iou_type}_mAP"] = coco_stats[0]
+                # metrics[f"{iou_type}_mAP_50"] = coco_stats[1]
+                # metrics[f"{iou_type}_mAP_75"] = coco_stats[2]
+                # metrics[f"{iou_type}_mAP_small"] = coco_stats[3]
+                # metrics[f"{iou_type}_mAP_medium"] = coco_stats[4]
+                # metrics[f"{iou_type}_mAP_large"] = coco_stats[5]
+        return metrics
 
 
 class TorchVisionTrial(pytorch.PyTorchTrial):
@@ -58,8 +116,8 @@ class TorchVisionTrial(pytorch.PyTorchTrial):
             torch.optim.lr_scheduler.StepLR(self.optimizer, step_size=3, gamma=0.1),
             step_mode=pytorch.LRScheduler.StepMode.STEP_EVERY_EPOCH,
         )
-        
-        self.evaluator = CocoEvaluator(self.test_dataset, self.model)
+
+        self.reducer = self.context.wrap_reducer(CocoReducer(self.test_dataset, ['bbox', 'segm']))
 
     def loss_reduced(self, loss_dict) -> torch.Tensor:
         # reduce losses over all GPUs for logging purposes
@@ -108,22 +166,16 @@ class TorchVisionTrial(pytorch.PyTorchTrial):
     def evaluate_batch(self, batch: pytorch.TorchData, batch_idx: int) -> Dict[str, Any]:
         images, targets = batch
 
-        outputs = self.model(images, targets)
-        outputs = [{k: v.to(torch.device("cpu")) for k, v in t.items()} for t in outputs]
-        res = {target["image_id"]: output for target, output in zip(targets, outputs)}
+        images = list(image for image in images)
+        targets = [{k: v for k, v in t.items()} for t in targets]
 
-        self.evaluator.update(res)
-
-        # accumulate predictions from all images
-        self.evaluator.accumulate()
-        self.evaluator.summarize()
         metrics = {}
 
-        # Return bbox iou and segmentation iou
-        for iou_type, coco_eval in self.evaluator.coco_eval.items():
-            logging.debug(f"IoU type: {iou_type}")
-            coco_eval.summarize()
-            metrics[f"iou_{iou_type}"] = coco_eval.stats[0]
+        outputs = self.model(images)
+        outputs = [{k: v.to(torch.device("cpu")) for k, v in t.items()} for t in outputs]
+        result = [(target["image_id"], output) for target, output in zip(targets, outputs)]
+
+        self.reducer.update(result)
 
         return metrics
 

@@ -1,4 +1,4 @@
-name: torchvision_const_coco
+name: torchvision_const_coco_test
 hyperparameters:
   learning_rate: 0.005
   momentum: 0.9
@@ -6,7 +6,7 @@ hyperparameters:
   num_classes: 2
 searcher:
   name: single
-  metric: iou_segm
+  metric: bbox_mAP
   max_length:
     batches: 400
   smaller_is_better: false

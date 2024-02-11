@@ -15,7 +15,7 @@ hyperparameters:
   num_classes: 2
 searcher:
   name: random
-  metric: iou_segm
+  metric: bbox_mAP
   smaller_is_better: false
   max_trials: 2
   max_length:

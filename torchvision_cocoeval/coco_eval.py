@@ -1,38 +1,23 @@
 import copy
 import io
 from contextlib import redirect_stdout
-import json
+
 import numpy as np
 import pycocotools.mask as mask_util
 import torch
 import utils
-import torchvision
 from pycocotools.coco import COCO
 from pycocotools.cocoeval import COCOeval
-from coco_utils import get_coco_api_from_dataset
 
-def _get_iou_types(model):
-    model_without_ddp = model
-    if isinstance(model, torch.nn.parallel.DistributedDataParallel):
-        model_without_ddp = model.module
-    iou_types = ["bbox"]
-    if isinstance(model_without_ddp, torchvision.models.detection.MaskRCNN):
-        iou_types.append("segm")
-    if isinstance(model_without_ddp, torchvision.models.detection.KeypointRCNN):
-        iou_types.append("keypoints")
-    return iou_types
 
 class CocoEvaluator:
-    def __init__(self, dataset, model):
-        iou_types = _get_iou_types(model)
+    def __init__(self, coco_gt, iou_types):
         if not isinstance(iou_types, (list, tuple)):
             raise TypeError(f"This constructor expects iou_types of type list or tuple, instead  got {type(iou_types)}")
-        
-        coco_gt = get_coco_api_from_dataset(dataset)
         coco_gt = copy.deepcopy(coco_gt)
         self.coco_gt = coco_gt
 
-        self.iou_types = iou_types # ['bbox', 'segm']
+        self.iou_types = iou_types
         self.coco_eval = {}
         for iou_type in iou_types:
             self.coco_eval[iou_type] = COCOeval(coco_gt, iouType=iou_type)
@@ -40,10 +25,8 @@ class CocoEvaluator:
         self.img_ids = []
         self.eval_imgs = {k: [] for k in iou_types}
 
-
     def update(self, predictions):
         img_ids = list(np.unique(list(predictions.keys())))
-        #print(img_ids)
         self.img_ids.extend(img_ids)
 
         for iou_type in self.iou_types:
@@ -55,8 +38,8 @@ class CocoEvaluator:
             coco_eval.cocoDt = coco_dt
             coco_eval.params.imgIds = list(img_ids)
             img_ids, eval_imgs = evaluate(coco_eval)
-            self.eval_imgs[iou_type] = np.append(self.eval_imgs[iou_type], eval_imgs)
 
+            self.eval_imgs[iou_type].append(eval_imgs)
 
     def synchronize_between_processes(self):
         for iou_type in self.iou_types:
@@ -69,6 +52,7 @@ class CocoEvaluator:
 
     def summarize(self):
         for iou_type, coco_eval in self.coco_eval.items():
+            print(f"IoU metric: {iou_type}")
             coco_eval.summarize()
 
     def prepare(self, predictions, iou_type):

@@ -6,18 +6,16 @@ hyperparameters:
     maxval: 0.01
   momentum:
     type: double
-    minval: 0.9
+    minval: 0.7
     maxval: 0.99
-  weight_decay:
-    type: double
-    minval: .0001
-    maxval: .001
+  weight_decay: 0.0005
   num_classes: 2
 searcher:
   name: adaptive_asha
   metric: bbox_mAP
   smaller_is_better: false
-  max_trials: 2
+  max_trials: 4
+  max_concurrent_trials: 2
   max_length:
     batches: 400
 entrypoint: python3 train.py
